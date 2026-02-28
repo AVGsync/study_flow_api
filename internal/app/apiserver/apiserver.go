@@ -7,6 +7,7 @@ import (
 
 	"github.com/AVGsync/study_flow_api/internal/database"
 	"github.com/AVGsync/study_flow_api/internal/handlers"
+	"github.com/AVGsync/study_flow_api/internal/auth"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -68,13 +69,22 @@ func (s *APIServer) configureLogger() error {
 		Level: level,
 	})
 	s.logger = slog.New(handler)
+	slog.SetDefault(s.logger)
 
 	return nil
 }
 
 func (s *APIServer) configureRouter() {
 	userHandler := handlers.NewUserHandler(s.db.User())
-	s.router.Get("/user", userHandler.FindByEmail())
+
+	authMW := auth.NewMiddleware([]byte(s.config.JWTSecret), s.db.User())
+
+	s.router.Route("/api", func(r chi.Router) {
+		r.Use(authMW.Auth)
+		r.Get("/user", userHandler.Me())
+	})
+
+
 }
 
 func (s *APIServer) configureDB() error {

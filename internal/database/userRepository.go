@@ -1,6 +1,9 @@
 package database
 
 import (
+	"context"
+	"database/sql"
+
 	"github.com/AVGsync/study_flow_api/internal/models"
 )
 
@@ -11,15 +14,38 @@ type UserRepository struct {
 func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 	u := &models.User{}
 	if err := r.database.db.QueryRow(
-		"SELECT id, username, email, password FROM users WHERE email = $1",
+		"SELECT id, login, email, hashed_password, role FROM users WHERE email = $1",
 		email,
 	).Scan(
 		&u.ID,
-		&u.Username,
+		&u.Login,
 		&u.Email,
 		&u.Password,
+		&u.Role,
 	); err != nil {
 		return nil, err
 	}
 	return u, nil
+}
+
+func (r *UserRepository) FindByID(ctx context.Context, id string) (*models.User, error) {
+    u := &models.User{}
+    err := r.database.db.QueryRowContext(
+        ctx,
+        "SELECT id, login, email, hashed_password, role FROM users WHERE id = $1",
+        id,
+    ).Scan(
+        &u.ID,
+        &u.Login,
+        &u.Email,
+        &u.Password,
+        &u.Role,
+    )
+    if err != nil {
+        if err == sql.ErrNoRows {
+            return nil, err
+        }
+        return nil, err
+    }
+    return u, nil
 }

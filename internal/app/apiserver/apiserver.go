@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/AVGsync/study_flow_api/internal/auth"
 	"github.com/AVGsync/study_flow_api/internal/database"
 	"github.com/AVGsync/study_flow_api/internal/handlers"
-	"github.com/AVGsync/study_flow_api/internal/auth"
+	"github.com/AVGsync/study_flow_api/internal/security"
+	"github.com/AVGsync/study_flow_api/internal/services"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -75,9 +77,11 @@ func (s *APIServer) configureLogger() error {
 }
 
 func (s *APIServer) configureRouter() {
-	userHandler := handlers.NewUserHandler(s.db.User())
+	userRepo := s.db.User()
+	userService := services.NewUserService(userRepo, security.NewBcryptHasher())
+	userHandler := handlers.NewUserHandler(userService)
 
-	authMW := auth.NewMiddleware([]byte(s.config.JWTSecret), s.db.User())
+	authMW := auth.NewMiddleware([]byte(s.config.JWTSecret), userRepo)
 
 	s.router.Route("/api", func(r chi.Router) {
 		r.Use(authMW.Auth)
@@ -85,7 +89,6 @@ func (s *APIServer) configureRouter() {
 		r.Patch("/user", userHandler.Update())
 		r.Patch("/user/change-password", userHandler.ChangePassword())
 	})
-
 
 }
 

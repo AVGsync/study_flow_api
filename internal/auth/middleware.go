@@ -6,13 +6,17 @@ import (
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
-
-	"github.com/AVGsync/study_flow_api/internal/database"
+    "github.com/AVGsync/study_flow_api/internal/database"
+	"github.com/AVGsync/study_flow_api/internal/models"
 )
+
+type UserFinder interface {
+    FindByID(ctx context.Context, id string) (*models.UserResponse, error)
+}
 
 type Middleware struct {
     Secret []byte
-    Users  *database.UserRepository
+    Users  UserFinder
 }
 
 func NewMiddleware(secret []byte, users *database.UserRepository) *Middleware {

@@ -36,7 +36,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*models.UserR
 	return u, nil
 }
 
-func (r *UserRepository) Update(ctx context.Context, id string, upd *models.UserUpdate) error {
+func (r *UserRepository) Update(ctx context.Context, id string, upd *models.UserUpdateRequest) error {
 	u := &models.User{}
 	err := r.database.db.QueryRowContext(
 		ctx,

@@ -13,16 +13,23 @@ import (
 
 type UserUseCase interface {
 	FindByID(ctx context.Context, id string) (*models.UserResponse, error)
-	Update(ctx context.Context, id string, upd *models.UserUpdate) error
+	Update(ctx context.Context, id string, upd *models.UserUpdateRequest) error
 	ChangePassword(ctx context.Context, id, oldPassword, newPassword string) error
 }
 
-type UserHandler struct {
-	user UserUseCase
+type Validator interface {
+	ValidateStruct(s interface{}) (bool, error)
 }
 
-func NewUserHandler(userUseCase UserUseCase) *UserHandler {
-	return &UserHandler{user: userUseCase}
+
+
+type UserHandler struct {
+	user UserUseCase
+	v 	 Validator
+}
+
+func NewUserHandler(userUseCase UserUseCase, v Validator) *UserHandler {
+	return &UserHandler{user: userUseCase, v: v}
 }
 
 func (h *UserHandler) Me() http.HandlerFunc {
@@ -58,7 +65,7 @@ func (h *UserHandler) Update() http.HandlerFunc {
 		}
 
 		//Записываем в updateData данные из тела запроса, которые нужно обновить
-		updateData := &models.UserUpdate{}
+		updateData := &models.UserUpdateRequest{}
 		if err := json.NewDecoder(r.Body).Decode(&updateData); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
@@ -67,6 +74,13 @@ func (h *UserHandler) Update() http.HandlerFunc {
 		//Проверяем, что хотя бы одно поле для обновления было передано
 		if updateData.Login == nil && updateData.Email == nil {
 			http.Error(w, "nothing to update", http.StatusBadRequest)
+			return
+		}
+
+		//Валидация данных для обновления
+		ok, errs := h.v.ValidateStruct(updateData)
+		if !ok {
+			http.Error(w, errs.Error(), http.StatusBadRequest)
 			return
 		}
 

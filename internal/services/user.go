@@ -11,7 +11,7 @@ var ErrInvalidOldPassword = errors.New("old password is incorrect")
 
 type UserRepository interface {
 	FindByID(ctx context.Context, id string) (*models.UserResponse, error)
-	Update(ctx context.Context, id string, upd *models.UserUpdate) error
+	Update(ctx context.Context, id string, upd *models.UserUpdateRequest) error
 	GetPasswordHashByID(ctx context.Context, id string) (string, error)
 	UpdatePasswordHash(ctx context.Context, id, hashedPassword string) error
 }
@@ -37,7 +37,7 @@ func (s *UserService) FindByID(ctx context.Context, id string) (*models.UserResp
 	return s.repo.FindByID(ctx, id)
 }
 
-func (s *UserService) Update(ctx context.Context, id string, upd *models.UserUpdate) error {
+func (s *UserService) Update(ctx context.Context, id string, upd *models.UserUpdateRequest) error {
 	return s.repo.Update(ctx, id, upd)
 }
 

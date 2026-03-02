@@ -8,9 +8,9 @@ type User struct {
 	Role     string `json:"role"`
 }
 
-type UserUpdate struct {
-	Login    *string `json:"login,omitempty"`
-	Email    *string `json:"email,omitempty"`
+type UserUpdateRequest struct {
+    Login *string `json:"login,omitempty" validate:"omitempty,min=3,max=32,alphanum"`
+    Email *string `json:"email,omitempty" validate:"omitempty,email"`
 }
 
 type UserResponse struct {

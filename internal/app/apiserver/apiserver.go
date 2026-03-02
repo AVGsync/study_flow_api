@@ -79,7 +79,7 @@ func (s *APIServer) configureLogger() error {
 func (s *APIServer) configureRouter() {
 	userRepo := s.db.User()
 	userService := services.NewUserService(userRepo, security.NewBcryptHasher())
-	userHandler := handlers.NewUserHandler(userService)
+	userHandler := handlers.NewUserHandler(userService, security.NewValidator())
 
 	authMW := auth.NewMiddleware([]byte(s.config.JWTSecret), userRepo)
 

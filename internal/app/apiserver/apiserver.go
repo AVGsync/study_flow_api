@@ -85,11 +85,18 @@ func (s *APIServer) configureRouter() {
 
 	s.router.Route("/api", func(r chi.Router) {
 		r.Use(authMW.Auth)
-		r.Get("/user", userHandler.Me())
+
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(authMW.Admin)
+			r.Get("/user", userHandler.UserByID())
+			r.Patch("/user", userHandler.Update())
+			r.Patch("/user/change-password", userHandler.ChangePassword())
+		})
+
+		r.Get("/user", userHandler.UserByID())
 		r.Patch("/user", userHandler.Update())
 		r.Patch("/user/change-password", userHandler.ChangePassword())
 	})
-
 }
 
 func (s *APIServer) configureDB() error {

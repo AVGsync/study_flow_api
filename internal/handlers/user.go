@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/AVGsync/study_flow_api/internal/auth"
 	"github.com/AVGsync/study_flow_api/internal/models"
 	"github.com/AVGsync/study_flow_api/internal/services"
@@ -32,12 +33,23 @@ func NewUserHandler(userUseCase UserUseCase, v Validator) *UserHandler {
 	return &UserHandler{user: userUseCase, v: v}
 }
 
-func (h *UserHandler) Me() http.HandlerFunc {
+func (h *UserHandler) UserByID() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := auth.UserIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
+		}
+
+		if auth.IsAdminFromContext(r.Context()) {
+			if idStr := r.URL.Query().Get("id"); idStr != "" {
+				uid, err := uuid.Parse(idStr)
+				if err != nil {
+					http.Error(w, "invalid id", http.StatusBadRequest)
+					return 
+				}
+				userID = uid.String()
+			}
 		}
 
 		u, err := h.user.FindByID(r.Context(), userID)
@@ -62,6 +74,19 @@ func (h *UserHandler) Update() http.HandlerFunc {
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
+		}
+
+
+		//Если пользователь - админ, то он может обновлять данные любого пользователя, передавая id в query параметре, иначе - только свои данные
+		if auth.IsAdminFromContext(r.Context()) {
+			if idStr := r.URL.Query().Get("id"); idStr != "" {
+				uid, err := uuid.Parse(idStr)
+				if err != nil {
+					http.Error(w, "invalid id", http.StatusBadRequest)
+					return 
+				}
+				userID = uid.String()
+			}
 		}
 
 		//Записываем в updateData данные из тела запроса, которые нужно обновить
@@ -108,6 +133,17 @@ func (h *UserHandler) ChangePassword() http.HandlerFunc {
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
+		}
+
+		if auth.IsAdminFromContext(r.Context()) {
+			if idStr := r.URL.Query().Get("id"); idStr != "" {
+				uid, err := uuid.Parse(idStr)
+				if err != nil {
+					http.Error(w, "invalid id", http.StatusBadRequest)
+					return 
+				}
+				userID = uid.String()
+			}
 		}
 
 		changePass := &models.ChangePasswordRequest{}

@@ -77,3 +77,28 @@ func (m *Middleware) Auth(next http.Handler) http.Handler {
         next.ServeHTTP(w, r.WithContext(ctx))
     })
 }
+
+func (m *Middleware) Admin(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        userID, ok := UserIDFromContext(r.Context())
+        if !ok {
+            http.Error(w, "user ID not found in context", http.StatusUnauthorized)
+            return
+        }
+
+        user, err := m.Users.FindByID(r.Context(), userID)
+        if err != nil {
+            http.Error(w, "user not found", http.StatusUnauthorized)
+            return
+        }
+
+        if user.Role != "ROLE_PORTAL_ADMIN" {
+            http.Error(w, "admin access required", http.StatusForbidden)
+            return
+        }
+
+        // ставим флаг isAdmin в контекст и передаём НОВЫЙ r дальше
+        ctx := context.WithValue(r.Context(), isAdminKey, true)
+        next.ServeHTTP(w, r.WithContext(ctx))
+    })
+}

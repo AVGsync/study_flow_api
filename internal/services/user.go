@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/AVGsync/study_flow_api/internal/auth"
 	"github.com/AVGsync/study_flow_api/internal/models"
 )
 
@@ -47,10 +48,13 @@ func (s *UserService) ChangePassword(ctx context.Context, id, oldPassword, newPa
 		return err
 	}
 
-	if !s.hasher.Compare(oldPassword, currentHash) {
-		return ErrInvalidOldPassword
-	}
 
+	if !auth.IsAdminFromContext(ctx) {
+		if !s.hasher.Compare(oldPassword, currentHash) {
+			return ErrInvalidOldPassword
+		}
+	}
+	
 	newHash, err := s.hasher.Hash(newPassword)
 	if err != nil {
 		return err

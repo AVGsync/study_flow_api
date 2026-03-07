@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/AVGsync/study_flow_api/internal/auth"
+	"github.com/AVGsync/study_flow_api/internal/cache"
 	"github.com/AVGsync/study_flow_api/internal/chat"
 	"github.com/AVGsync/study_flow_api/internal/database"
 	"github.com/AVGsync/study_flow_api/internal/handlers"
@@ -80,14 +81,13 @@ func (s *APIServer) configureLogger() error {
 func (s *APIServer) configureRouter() {
 	hub := chat.NewHub()
 	go hub.Run()
+	userCache := cache.NewUserCache(s.config.RedisAddr, s.config.CacheTTL)
 	userRepo := s.db.User()
-	userService := services.NewUserService(userRepo, security.NewBcryptHasher())
+	userService := services.NewUserService(userRepo, security.NewBcryptHasher(), userCache)
 	userHandler := handlers.NewUserHandler(userService, security.NewValidator())
 	chatHandler := handlers.NewChatHandler(hub)
 
 	authMW := auth.NewMiddleware([]byte(s.config.JWTSecret), userRepo)
-
-	s.router.Get("/test-ws", chatHandler.ServeWS())
 
 	s.router.Route("/api", func(r chi.Router) {
 		r.Use(authMW.Auth)

@@ -22,20 +22,39 @@ type PasswordHasher interface {
 	Compare(plain, hashed string) bool
 }
 
+type Cache interface {
+	Set(ctx context.Context, user *models.UserResponse) error
+	Get(ctx context.Context, id string) (*models.UserResponse, error)
+}
+
 type UserService struct {
 	repo   UserRepository
 	hasher PasswordHasher
+	cache  Cache
 }
 
-func NewUserService(repo UserRepository, hasher PasswordHasher) *UserService {
+func NewUserService(repo UserRepository, hasher PasswordHasher, cache Cache) *UserService {
 	return &UserService{
 		repo:   repo,
 		hasher: hasher,
+		cache:  cache,
 	}
 }
 
 func (s *UserService) FindByID(ctx context.Context, id string) (*models.UserResponse, error) {
-	return s.repo.FindByID(ctx, id)
+	user, err := s.cache.Get(ctx, id)
+	if err == nil {
+		return user, nil
+	}
+
+	user, err = s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	s.cache.Set(ctx, user)
+
+	return user, nil
 }
 
 func (s *UserService) Update(ctx context.Context, id string, upd *models.UserUpdateRequest) error {

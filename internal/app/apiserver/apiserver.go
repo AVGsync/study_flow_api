@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/AVGsync/study_flow_api/internal/auth"
+	"github.com/AVGsync/study_flow_api/internal/chat"
 	"github.com/AVGsync/study_flow_api/internal/database"
 	"github.com/AVGsync/study_flow_api/internal/handlers"
 	"github.com/AVGsync/study_flow_api/internal/security"
@@ -77,14 +78,23 @@ func (s *APIServer) configureLogger() error {
 }
 
 func (s *APIServer) configureRouter() {
+	hub := chat.NewHub()
+	go hub.Run()
 	userRepo := s.db.User()
 	userService := services.NewUserService(userRepo, security.NewBcryptHasher())
 	userHandler := handlers.NewUserHandler(userService, security.NewValidator())
+	chatHandler := handlers.NewChatHandler(hub)
 
 	authMW := auth.NewMiddleware([]byte(s.config.JWTSecret), userRepo)
 
+	s.router.Get("/test-ws", chatHandler.ServeWS())
+
 	s.router.Route("/api", func(r chi.Router) {
 		r.Use(authMW.Auth)
+		r.Get("/ws", chatHandler.ServeWS())
+		r.Get("/user", userHandler.UserByID())
+		r.Patch("/user", userHandler.Update())
+		r.Patch("/user/change-password", userHandler.ChangePassword())
 
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(authMW.Admin)
@@ -92,10 +102,6 @@ func (s *APIServer) configureRouter() {
 			r.Patch("/user", userHandler.Update())
 			r.Patch("/user/change-password", userHandler.ChangePassword())
 		})
-
-		r.Get("/user", userHandler.UserByID())
-		r.Patch("/user", userHandler.Update())
-		r.Patch("/user/change-password", userHandler.ChangePassword())
 	})
 }
 

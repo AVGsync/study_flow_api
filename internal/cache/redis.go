@@ -23,7 +23,7 @@ func NewUserCache(addr string, ttl time.Duration) *UserCache {
 	}
 }
 
-func (c *UserCache) Set(ctx context.Context, user *models.UserResponse) error {
+func (c *UserCache) SetUser(ctx context.Context, user *models.UserResponse) error {
 	data, err := json.Marshal(user)
 	if err != nil {
 		return err
@@ -31,7 +31,7 @@ func (c *UserCache) Set(ctx context.Context, user *models.UserResponse) error {
 	return c.client.Set(ctx, "user:"+user.ID, data, c.ttl).Err()
 }
 
-func (c *UserCache) Get(ctx context.Context, id string) (*models.UserResponse, error) {
+func (c *UserCache) GetUser(ctx context.Context, id string) (*models.UserResponse, error) {
 	data, err := c.client.Get(ctx, "user:"+id).Bytes()
 	if err != nil {
 		return nil, err

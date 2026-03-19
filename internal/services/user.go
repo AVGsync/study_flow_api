@@ -23,8 +23,8 @@ type PasswordHasher interface {
 }
 
 type Cache interface {
-	Set(ctx context.Context, user *models.UserResponse) error
-	Get(ctx context.Context, id string) (*models.UserResponse, error)
+	SetUser(ctx context.Context, user *models.UserResponse) error
+	GetUser(ctx context.Context, id string) (*models.UserResponse, error)
 }
 
 type UserService struct {
@@ -42,7 +42,7 @@ func NewUserService(repo UserRepository, hasher PasswordHasher, cache Cache) *Us
 }
 
 func (s *UserService) FindByID(ctx context.Context, id string) (*models.UserResponse, error) {
-	user, err := s.cache.Get(ctx, id)
+	user, err := s.cache.GetUser(ctx, id)
 	if err == nil {
 		return user, nil
 	}
@@ -52,7 +52,7 @@ func (s *UserService) FindByID(ctx context.Context, id string) (*models.UserResp
 		return nil, err
 	}
 
-	s.cache.Set(ctx, user)
+	s.cache.SetUser(ctx, user)
 
 	return user, nil
 }

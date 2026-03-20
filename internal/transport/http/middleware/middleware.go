@@ -1,0 +1,103 @@
+package middleware
+
+import (
+	"context"
+	"net/http"
+	"strings"
+
+	"github.com/AVGsync/study_flow_api/internal/authctx"
+	"github.com/AVGsync/study_flow_api/internal/model"
+	"github.com/golang-jwt/jwt/v5"
+)
+
+type UserFinder interface {
+	FindByID(ctx context.Context, id string) (*model.UserResponse, error)
+}
+
+type Middleware struct {
+	Secret []byte
+	Users  UserFinder
+}
+
+// Middleware работает через интерфейс, чтобы transport-слой не зависел от конкретной реализации репозитория.
+func NewMiddleware(secret []byte, users UserFinder) *Middleware {
+	return &Middleware{
+		Secret: secret,
+		Users:  users,
+	}
+}
+
+func (m *Middleware) Auth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "missing Authorization header", http.StatusUnauthorized)
+			return
+		}
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			http.Error(w, "invalid Authorization header", http.StatusUnauthorized)
+			return
+		}
+
+		tokenStr := parts[1]
+
+		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, jwt.ErrSignatureInvalid
+			}
+			return m.Secret, nil
+		})
+		if err != nil || !token.Valid {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			http.Error(w, "invalid token claims", http.StatusUnauthorized)
+			return
+		}
+
+		userID, ok := claims["id"].(string)
+		if !ok || userID == "" {
+			http.Error(w, "user_id missing in token", http.StatusUnauthorized)
+			return
+		}
+
+		user, err := m.Users.FindByID(r.Context(), userID)
+		if err != nil {
+			http.Error(w, "user not found", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := authctx.WithUserID(r.Context(), user.ID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (m *Middleware) Admin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := authctx.UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "user ID not found in context", http.StatusUnauthorized)
+			return
+		}
+
+		user, err := m.Users.FindByID(r.Context(), userID)
+		if err != nil {
+			http.Error(w, "user not found", http.StatusUnauthorized)
+			return
+		}
+
+		if user.Role != "ROLE_PORTAL_ADMIN" {
+			http.Error(w, "admin access required", http.StatusForbidden)
+			return
+		}
+
+		// Флаг администратора добавляем в context отдельно, чтобы дальше его читали handler/service без знания о middleware.
+		ctx := authctx.WithAdmin(r.Context(), true)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}

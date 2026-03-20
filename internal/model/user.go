@@ -1,16 +1,16 @@
-package models
+package model
 
 type User struct {
 	ID       string `json:"id"`
-	Login 	 string `json:"username"`
+	Login    string `json:"username"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Role     string `json:"role"`
 }
 
 type UserUpdateRequest struct {
-    Login *string `json:"login,omitempty" validate:"omitempty,min=3,max=32,alphanum"`
-    Email *string `json:"email,omitempty" validate:"omitempty,email"`
+	Login *string `json:"login,omitempty" validate:"omitempty,min=3,max=32,alphanum"`
+	Email *string `json:"email,omitempty" validate:"omitempty,email"`
 }
 
 type UserResponse struct {

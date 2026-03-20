@@ -1,18 +1,19 @@
-package services
+package service
 
 import (
 	"context"
 	"errors"
+	"log/slog"
 
-	"github.com/AVGsync/study_flow_api/internal/auth"
-	"github.com/AVGsync/study_flow_api/internal/models"
+	"github.com/AVGsync/study_flow_api/internal/authctx"
+	"github.com/AVGsync/study_flow_api/internal/model"
 )
 
 var ErrInvalidOldPassword = errors.New("old password is incorrect")
 
 type UserRepository interface {
-	FindByID(ctx context.Context, id string) (*models.UserResponse, error)
-	Update(ctx context.Context, id string, upd *models.UserUpdateRequest) error
+	FindByID(ctx context.Context, id string) (*model.UserResponse, error)
+	Update(ctx context.Context, id string, upd *model.UserUpdateRequest) error
 	GetPasswordHashByID(ctx context.Context, id string) (string, error)
 	UpdatePasswordHash(ctx context.Context, id, hashedPassword string) error
 }
@@ -23,8 +24,9 @@ type PasswordHasher interface {
 }
 
 type Cache interface {
-	SetUser(ctx context.Context, user *models.UserResponse) error
-	GetUser(ctx context.Context, id string) (*models.UserResponse, error)
+	SetUser(ctx context.Context, user *model.UserResponse) error
+	GetUser(ctx context.Context, id string) (*model.UserResponse, error)
+	DeleteUser(ctx context.Context, id string) error
 }
 
 type UserService struct {
@@ -41,7 +43,7 @@ func NewUserService(repo UserRepository, hasher PasswordHasher, cache Cache) *Us
 	}
 }
 
-func (s *UserService) FindByID(ctx context.Context, id string) (*models.UserResponse, error) {
+func (s *UserService) FindByID(ctx context.Context, id string) (*model.UserResponse, error) {
 	user, err := s.cache.GetUser(ctx, id)
 	if err == nil {
 		return user, nil
@@ -57,7 +59,11 @@ func (s *UserService) FindByID(ctx context.Context, id string) (*models.UserResp
 	return user, nil
 }
 
-func (s *UserService) Update(ctx context.Context, id string, upd *models.UserUpdateRequest) error {
+func (s *UserService) Update(ctx context.Context, id string, upd *model.UserUpdateRequest) error {
+	err := s.cache.DeleteUser(ctx, id)
+	if err != nil {
+		slog.Warn("failed to delete user from cache before update", "id", id, "error", err)
+	}
 	return s.repo.Update(ctx, id, upd)
 }
 
@@ -67,13 +73,12 @@ func (s *UserService) ChangePassword(ctx context.Context, id, oldPassword, newPa
 		return err
 	}
 
-
-	if !auth.IsAdminFromContext(ctx) {
+	if !authctx.IsAdminFromContext(ctx) {
 		if !s.hasher.Compare(oldPassword, currentHash) {
 			return ErrInvalidOldPassword
 		}
 	}
-	
+
 	newHash, err := s.hasher.Hash(newPassword)
 	if err != nil {
 		return err

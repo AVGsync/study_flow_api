@@ -5,13 +5,13 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/AVGsync/study_flow_api/internal/auth"
-	"github.com/AVGsync/study_flow_api/internal/cache"
-	"github.com/AVGsync/study_flow_api/internal/chat"
-	"github.com/AVGsync/study_flow_api/internal/database"
-	"github.com/AVGsync/study_flow_api/internal/handlers"
-	"github.com/AVGsync/study_flow_api/internal/security"
-	"github.com/AVGsync/study_flow_api/internal/services"
+	"github.com/AVGsync/study_flow_api/internal/infrastructure/cache/rediscache"
+	"github.com/AVGsync/study_flow_api/internal/infrastructure/security"
+	"github.com/AVGsync/study_flow_api/internal/repository/postgres"
+	"github.com/AVGsync/study_flow_api/internal/service"
+	"github.com/AVGsync/study_flow_api/internal/transport/http/handler"
+	"github.com/AVGsync/study_flow_api/internal/transport/http/middleware"
+	"github.com/AVGsync/study_flow_api/internal/transport/ws"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -19,7 +19,7 @@ type APIServer struct {
 	config *Config
 	logger *slog.Logger
 	router *chi.Mux
-	db     *database.DB
+	db     *postgres.DB
 }
 
 const (
@@ -27,7 +27,6 @@ const (
 )
 
 func New(config *Config) *APIServer {
-
 	logger := slog.New(
 		slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
@@ -79,15 +78,18 @@ func (s *APIServer) configureLogger() error {
 }
 
 func (s *APIServer) configureRouter() {
-	hub := chat.NewHub()
+	hub := ws.NewHub()
 	go hub.Run()
-	userCache := cache.NewUserCache(s.config.RedisAddr, s.config.CacheTTL)
-	userRepo := s.db.User()
-	userService := services.NewUserService(userRepo, security.NewBcryptHasher(), userCache)
-	userHandler := handlers.NewUserHandler(userService, security.NewValidator())
-	chatHandler := handlers.NewChatHandler(hub)
 
-	authMW := auth.NewMiddleware([]byte(s.config.JWTSecret), userRepo)
+	userCache := rediscache.NewUserCache(s.config.RedisAddr, s.config.CacheTTL)
+	userRepo := s.db.User()
+
+	// Собираем зависимости слоями: transport -> service -> repository/infrastructure.
+	userService := service.NewUserService(userRepo, security.NewBcryptHasher(), userCache)
+	userHandler := handler.NewUserHandler(userService, security.NewValidator())
+	chatHandler := handler.NewChatHandler(hub)
+
+	authMW := middleware.NewMiddleware([]byte(s.config.JWTSecret), userService)
 
 	s.router.Route("/api", func(r chi.Router) {
 		r.Use(authMW.Auth)
@@ -106,7 +108,7 @@ func (s *APIServer) configureRouter() {
 }
 
 func (s *APIServer) configureDB() error {
-	db := database.New(s.config.DB)
+	db := postgres.New(s.config.DB)
 	if err := db.Open(); err != nil {
 		return err
 	}

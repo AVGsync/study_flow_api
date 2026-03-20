@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"text/tabwriter"
 	"time"
 
@@ -43,6 +44,7 @@ type config struct {
 	body              string
 	contentType       string
 	token             string
+	tokens            []string
 	startConcurrency  int
 	maxConcurrency    int
 	stepConcurrency   int
@@ -96,6 +98,40 @@ type securityResult struct {
 	detail string
 }
 
+type requestPlan struct {
+	targetURL   string
+	method      string
+	body        string
+	contentType string
+	tokens      []string
+	nextToken   uint64
+}
+
+func newRequestPlan(cfg config, targetURL string) *requestPlan {
+	return &requestPlan{
+		targetURL:   targetURL,
+		method:      cfg.method,
+		body:        cfg.body,
+		contentType: cfg.contentType,
+		tokens:      cfg.tokens,
+	}
+}
+
+// Для нагрузки раздаем реальные JWT пользователей по кругу, чтобы нагрузка была ближе к живому трафику.
+func (p *requestPlan) BuildRequest() (*http.Request, error) {
+	token := p.pickToken()
+	return buildRequest(p.method, p.targetURL, p.body, p.contentType, token, token != "")
+}
+
+func (p *requestPlan) pickToken() string {
+	if len(p.tokens) == 0 {
+		return ""
+	}
+
+	idx := atomic.AddUint64(&p.nextToken, 1) - 1
+	return p.tokens[int(idx%uint64(len(p.tokens)))]
+}
+
 func main() {
 	cfg, err := parseConfig()
 	if err != nil {
@@ -109,6 +145,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	plan := newRequestPlan(cfg, targetURL)
 	client := newHTTPClient(cfg)
 	fmt.Println("============================================")
 	fmt.Println("  Проверка API: нагрузка + базовая безопасность")
@@ -123,10 +160,10 @@ func main() {
 	}
 
 	if cfg.warmupRequests > 0 {
-		runWarmup(client, cfg, targetURL)
+		runWarmup(client, cfg, plan)
 	}
 
-	results := runLoadTest(client, cfg, targetURL)
+	results := runLoadTest(client, cfg, plan)
 	printLoadResults(results)
 	printCapacitySummary(results)
 
@@ -141,6 +178,8 @@ func parseConfig() (config, error) {
 	body := flag.String("body", "", "Тело запроса для нагрузочного теста (JSON строкой)")
 	contentType := flag.String("content-type", "application/json", "Content-Type для запросов с телом")
 	token := flag.String("token", "", "JWT токен без префикса Bearer")
+	tokensRaw := flag.String("tokens", "", "JWT токены через запятую без префикса Bearer")
+	tokensFile := flag.String("tokens-file", "", "Путь к файлу с JWT токенами: один токен на строку")
 	startConcurrency := flag.Int("start-concurrency", 10, "Начальная конкурентность")
 	maxConcurrency := flag.Int("max-concurrency", 200, "Максимальная конкурентность")
 	stepConcurrency := flag.Int("step", 10, "Шаг увеличения конкурентности")
@@ -162,13 +201,24 @@ func parseConfig() (config, error) {
 		return config{}, err
 	}
 
+	tokens, err := loadTokens(*token, *tokensRaw, *tokensFile)
+	if err != nil {
+		return config{}, err
+	}
+
+	primaryToken := ""
+	if len(tokens) > 0 {
+		primaryToken = tokens[0]
+	}
+
 	cfg := config{
 		baseURL:           strings.TrimSpace(*baseURL),
 		endpoint:          strings.TrimSpace(*endpoint),
 		method:            strings.ToUpper(strings.TrimSpace(*method)),
 		body:              *body,
 		contentType:       strings.TrimSpace(*contentType),
-		token:             strings.TrimSpace(*token),
+		token:             primaryToken,
+		tokens:            tokens,
 		startConcurrency:  *startConcurrency,
 		maxConcurrency:    *maxConcurrency,
 		stepConcurrency:   *stepConcurrency,
@@ -248,6 +298,58 @@ func parseOKStatuses(raw string) (successMatcher, error) {
 	return matcher, nil
 }
 
+func loadTokens(singleToken, tokensRaw, tokensFile string) ([]string, error) {
+	seen := make(map[string]struct{})
+	tokens := make([]string, 0)
+
+	// Собираем токены из всех источников в один пул, чтобы потом крутить реальные пользовательские запросы по round-robin.
+	addToken := func(raw string) {
+		token := strings.TrimSpace(raw)
+		if token == "" {
+			return
+		}
+
+		if strings.HasPrefix(strings.ToLower(token), "bearer ") {
+			token = strings.TrimSpace(token[len("bearer "):])
+		}
+		if token == "" {
+			return
+		}
+
+		if _, exists := seen[token]; exists {
+			return
+		}
+
+		seen[token] = struct{}{}
+		tokens = append(tokens, token)
+	}
+
+	addToken(singleToken)
+
+	for _, raw := range strings.Split(tokensRaw, ",") {
+		addToken(raw)
+	}
+
+	if strings.TrimSpace(tokensFile) == "" {
+		return tokens, nil
+	}
+
+	data, err := os.ReadFile(strings.TrimSpace(tokensFile))
+	if err != nil {
+		return nil, fmt.Errorf("tokens-file: %w", err)
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		addToken(line)
+	}
+
+	return tokens, nil
+}
+
 func newHTTPClient(cfg config) *http.Client {
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
@@ -281,11 +383,11 @@ func resolveTargetURL(baseURL, endpoint string) (string, error) {
 	return base.ResolveReference(ref).String(), nil
 }
 
-func runWarmup(client *http.Client, cfg config, targetURL string) {
+func runWarmup(client *http.Client, cfg config, plan *requestPlan) {
 	fmt.Printf("Разогрев: %d запросов...\n", cfg.warmupRequests)
 	ok := 0
 	for i := 0; i < cfg.warmupRequests; i++ {
-		req, err := buildRequest(cfg.method, targetURL, cfg.body, cfg.contentType, cfg.token, true)
+		req, err := plan.BuildRequest()
 		if err != nil {
 			continue
 		}
@@ -301,11 +403,11 @@ func runWarmup(client *http.Client, cfg config, targetURL string) {
 	fmt.Printf("Разогрев завершен: успешных %d из %d.\n\n", ok, cfg.warmupRequests)
 }
 
-func runLoadTest(client *http.Client, cfg config, targetURL string) []loadResult {
+func runLoadTest(client *http.Client, cfg config, plan *requestPlan) []loadResult {
 	results := make([]loadResult, 0, ((cfg.maxConcurrency-cfg.startConcurrency)/cfg.stepConcurrency)+1)
 
 	for c := cfg.startConcurrency; c <= cfg.maxConcurrency; c += cfg.stepConcurrency {
-		result := executeLevel(client, cfg, targetURL, c)
+		result := executeLevel(client, cfg, plan, c)
 		result.stable = result.errorRate <= cfg.maxErrorRate && result.p95 <= cfg.p95Limit
 		results = append(results, result)
 	}
@@ -313,7 +415,7 @@ func runLoadTest(client *http.Client, cfg config, targetURL string) []loadResult
 	return results
 }
 
-func executeLevel(client *http.Client, cfg config, targetURL string, concurrency int) loadResult {
+func executeLevel(client *http.Client, cfg config, plan *requestPlan, concurrency int) loadResult {
 	totalRequests := concurrency * cfg.requestsPerWorker
 	samples := make(chan sample, totalRequests)
 	var wg sync.WaitGroup
@@ -324,7 +426,7 @@ func executeLevel(client *http.Client, cfg config, targetURL string, concurrency
 		go func() {
 			defer wg.Done()
 			for i := 0; i < cfg.requestsPerWorker; i++ {
-				req, err := buildRequest(cfg.method, targetURL, cfg.body, cfg.contentType, cfg.token, true)
+				req, err := plan.BuildRequest()
 				if err != nil {
 					samples <- sample{err: err}
 					continue

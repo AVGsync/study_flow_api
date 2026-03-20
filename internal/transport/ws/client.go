@@ -1,10 +1,10 @@
-package chat
+package ws
 
 import (
 	"encoding/json"
 	"log/slog"
 
-	"github.com/AVGsync/study_flow_api/internal/models"
+	"github.com/AVGsync/study_flow_api/internal/model"
 	"github.com/gorilla/websocket"
 )
 
@@ -12,7 +12,7 @@ type Client struct {
 	Hub  *Hub
 	Conn *websocket.Conn
 	ID   string
-	Send chan *models.Message
+	Send chan *model.Message
 }
 
 func (c *Client) ReadPump() {
@@ -28,7 +28,7 @@ func (c *Client) ReadPump() {
 			break
 		}
 
-		var msg models.Message
+		var msg model.Message
 		if err := json.Unmarshal(messageData, &msg); err != nil {
 			slog.Error("invalid message format", "client_id", c.ID, "error", err)
 			continue

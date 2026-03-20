@@ -1,4 +1,4 @@
-﻿package database
+package postgres
 
 import (
 	"database/sql"
@@ -7,8 +7,8 @@ import (
 )
 
 type DB struct {
-	config *Config
-	db     *sql.DB
+	config         *Config
+	db             *sql.DB
 	userRepository *UserRepository
 }
 

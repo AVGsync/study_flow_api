@@ -1,19 +1,19 @@
-package database
+package postgres
 
 import (
 	"context"
 	"database/sql"
 	"log/slog"
 
-	"github.com/AVGsync/study_flow_api/internal/models"
+	"github.com/AVGsync/study_flow_api/internal/model"
 )
 
 type UserRepository struct {
 	database *DB
 }
 
-func (r *UserRepository) FindByID(ctx context.Context, id string) (*models.UserResponse, error) {
-	u := &models.UserResponse{}
+func (r *UserRepository) FindByID(ctx context.Context, id string) (*model.UserResponse, error) {
+	u := &model.UserResponse{}
 	err := r.database.db.QueryRowContext(
 		ctx,
 		"SELECT id, login, email, role FROM users WHERE id = $1",
@@ -36,8 +36,8 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*models.UserR
 	return u, nil
 }
 
-func (r *UserRepository) Update(ctx context.Context, id string, upd *models.UserUpdateRequest) error {
-	u := &models.User{}
+func (r *UserRepository) Update(ctx context.Context, id string, upd *model.UserUpdateRequest) error {
+	u := &model.User{}
 	err := r.database.db.QueryRowContext(
 		ctx,
 		"SELECT login, email FROM users WHERE id = $1",
